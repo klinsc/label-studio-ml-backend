@@ -24,6 +24,18 @@ class yolov5(LabelStudioMLBase):
     def __init__(self, **kwargs):
         super(yolov5, self).__init__(**kwargs)
 
+        self.from_name, self.to_name, self.value, self.labels_in_config = get_single_tag_keys(
+            self.parsed_label_config, 'RectangleLabels', 'Image')
+        schema = list(self.parsed_label_config.values())[0]
+        self.labels_in_config = set(self.labels_in_config)
+
+        # Collect label maps from `predicted_values="airplane,car"` attribute in <Label> tag
+        self.labels_attrs = schema.get('labels_attrs')
+        if self.labels_attrs:
+            for label_name, label_attrs in self.labels_attrs.items():
+                for predicted_value in label_attrs.get('predicted_values', '').split(','):
+                    self.label_map[predicted_value] = label_name
+
         # Model
         # or yolov5n - yolov5x6, custom
         self.model = hub.load("ultralytics/yolov5", "yolov5s")
@@ -54,7 +66,7 @@ class yolov5(LabelStudioMLBase):
         image_url = self._get_image_url(task)
         image_path = self.get_local_path(image_url)
 
-        model_results = inference_detector(self.model, image_path)
+        model_results = self.model(image_path, size=1280)
         results = []
         all_scores = []
         img_width, img_height = get_image_size(image_path)
