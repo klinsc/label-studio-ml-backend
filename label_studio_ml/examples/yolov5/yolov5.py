@@ -4,8 +4,6 @@ import boto3
 import io
 import json
 
-
-from mmdet.apis import init_detector, inference_detector
 from torch import hub
 
 from label_studio_ml.model import LabelStudioMLBase
@@ -19,10 +17,24 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 
-class yolov5(LabelStudioMLBase):
+class YOLOv5(LabelStudioMLBase):
 
-    def __init__(self, **kwargs):
-        super(yolov5, self).__init__(**kwargs)
+    def __init__(self, image_dir=None, labels_file=None, score_threshold=0.0,  **kwargs):
+        super(YOLOv5, self).__init__(**kwargs)
+
+        self.labels_file = labels_file
+        self.endpoint_url = kwargs.get('endpoint_url')
+        self.score_thresh = score_threshold
+
+        # default Label Studio image upload folder
+        upload_dir = os.path.join(get_data_dir(), 'media', 'upload')
+        self.image_dir = image_dir or upload_dir
+        logger.debug(
+            f'{self.__class__.__name__} reads images from {self.image_dir}')
+        if self.labels_file and os.path.exists(self.labels_file):
+            self.label_map = json_load(self.labels_file)
+        else:
+            self.label_map = {}
 
         self.from_name, self.to_name, self.value, self.labels_in_config = get_single_tag_keys(
             self.parsed_label_config, 'RectangleLabels', 'Image')
@@ -38,7 +50,8 @@ class yolov5(LabelStudioMLBase):
 
         # Model
         # or yolov5n - yolov5x6, custom
-        self.model = hub.load("ultralytics/yolov5", "yolov5s")
+        self.model = hub.load("ultralytics/yolov5", "custom", path="best.pt")
+        # self.model.cuda() # use GPU
 
     def _get_image_url(self, task):
         image_url = task['data'].get(
@@ -70,39 +83,77 @@ class yolov5(LabelStudioMLBase):
         results = []
         all_scores = []
         img_width, img_height = get_image_size(image_path)
-        for bboxes, label in zip(model_results, self.model.CLASSES):
-            output_label = self.label_map.get(label, label)
 
-            if output_label not in self.labels_in_config:
-                print(output_label + ' label not found in project config.')
-                continue
-            for bbox in bboxes:
-                bbox = list(bbox)
-                if not bbox:
+        df = model_results.pandas().xyxy[0]
+        for row in range(len(df)):
+            try:
+                xmin = df.at[row, 'xmin']
+                ymin = df.at[row, 'ymin']
+                xmax = df.at[row, 'xmax']
+                ymax = df.at[row, 'ymax']
+                confidence = df.at[row, 'confidence']
+                class_name = df.at[row, 'name']
+                class_id = df.at[row, 'class']
+
+                if confidence < 0.5:
                     continue
-                score = float(bbox[-1])
-                if score < self.score_thresh:
-                    continue
-                x, y, xmax, ymax = bbox[:4]
+
                 results.append({
                     'from_name': self.from_name,
                     'to_name': self.to_name,
                     'type': 'rectanglelabels',
+
                     'value': {
-                        'rectanglelabels': [output_label],
-                        'x': x / img_width * 100,
-                        'y': y / img_height * 100,
-                        'width': (xmax - x) / img_width * 100,
-                        'height': (ymax - y) / img_height * 100
+                        'rectanglelabels': [class_name],
+                        'x': xmin / img_width * 100,
+                        'y': ymin / img_height * 100,
+                        'width': (xmax - xmin) / img_width * 100,
+                        'height': (ymax - ymin) / img_height * 100
                     },
-                    'score': score
+                    'score': confidence
                 })
-                all_scores.append(score)
+                all_scores.append(confidence)
+            except Exception as e:
+                print(e)
+                continue
         avg_score = sum(all_scores) / max(len(all_scores), 1)
         return [{
             'result': results,
             'score': avg_score
         }]
+
+        #     # Compare this snippet from label_studio_ml\examples\mmdetection copy\mmdetection.py:
+
+        #     if output_label not in self.labels_in_config:
+        #         print(output_label + ' label not found in project config.')
+        #         continue
+        #     for bbox in bboxes:
+        #         bbox = list(bbox)
+        #         if not bbox:
+        #             continue
+        #         score = float(bbox[-1])
+        #         if score < self.score_thresh:
+        #             continue
+        #         x, y, xmax, ymax = bbox[:4]
+        #         results.append({
+        #             'from_name': self.from_name,
+        #             'to_name': self.to_name,
+        #             'type': 'rectanglelabels',
+        #             'value': {
+        #                 'rectanglelabels': [output_label],
+        #                 'x': x / img_width * 100,
+        #                 'y': y / img_height * 100,
+        #                 'width': (xmax - x) / img_width * 100,
+        #                 'height': (ymax - y) / img_height * 100
+        #             },
+        #             'score': score
+        #         })
+        #         all_scores.append(score)
+        # avg_score = sum(all_scores) / max(len(all_scores), 1)
+        # return [{
+        #     'result': results,
+        #     'score': avg_score
+        # }]
 
 
 def json_load(file, int_keys=False):
