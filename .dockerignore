@@ -1,0 +1,4 @@
+label_studio_ml/__pycache__/*
+label_studio_ml.egg-info/*
+my_ml_backend/*
+.github/*
