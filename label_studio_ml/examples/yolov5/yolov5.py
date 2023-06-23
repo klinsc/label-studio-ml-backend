@@ -27,7 +27,9 @@ class YOLOv5(LabelStudioMLBase):
         self.score_thresh = score_threshold
 
         # default Label Studio image upload folder
-        upload_dir = os.path.join(get_data_dir(), 'media', 'upload')
+        # get data_dir from environment variable or from settings
+        data_dir = os.environ.get('DATA_DIR') or get_data_dir()
+        upload_dir = os.path.join(data_dir, 'media', 'upload')
         self.image_dir = image_dir or upload_dir
         logger.debug(
             f'{self.__class__.__name__} reads images from {self.image_dir}')
