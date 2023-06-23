@@ -1,0 +1,1 @@
+docker build -t klinsc/label-studio-ml .
