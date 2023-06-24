@@ -53,11 +53,11 @@ class YOLOv5(LabelStudioMLBase):
 
         # Model
         # or yolov5n - yolov5x6, custom
-        self.model = hub.load("ultralytics/yolov5", "custom", path="best.pt")
+        self.model = hub.load("ultralytics/yolov5", "custom", path="asset/best.pt")
         # self.model.cuda() # use GPU
 
         self.existing_annotations = json_load(
-            'combineRpod5WithRpod6NotFinish.json')
+            'asset/combineRpod5WithRpod6NotFinish.json')
         print(self.existing_annotations)
 
     def json_load(file, int_keys=False):
