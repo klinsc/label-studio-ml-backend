@@ -3,6 +3,7 @@ import logging
 import boto3
 import io
 import json
+import re
 
 from torch import hub
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class YOLOv5(LabelStudioMLBase):
 
-    def __init__(self, image_dir=None, labels_file=None, score_threshold=0.0,  **kwargs):
+    def __init__(self, image_dir=None, labels_file=None, score_threshold=0.0, existing_annotations=None,  **kwargs):
         super(YOLOv5, self).__init__(**kwargs)
 
         self.labels_file = labels_file
@@ -55,6 +56,17 @@ class YOLOv5(LabelStudioMLBase):
         self.model = hub.load("ultralytics/yolov5", "custom", path="best.pt")
         # self.model.cuda() # use GPU
 
+        self.existing_annotations = json_load(
+            'combineRpod5WithRpod6NotFinish.json')
+        print(self.existing_annotations)
+
+    def json_load(file, int_keys=False):
+        with open(file) as f:
+            data = json.load(f)
+        if int_keys:
+            return {int(k): v for k, v in data.items()}
+        return data
+
     def _get_image_url(self, task):
         image_url = task['data'].get(
             self.value) or task['data'].get(DATA_UNDEFINED_NAME)
@@ -77,14 +89,49 @@ class YOLOv5(LabelStudioMLBase):
     def predict(self, tasks, **kwargs):
         assert len(tasks) == 1
         task = tasks[0]
-        
-        # "image": "/data/upload/2/520958e5-1b8b8169-ply-PluakDaeng5-sm-bh.png"
-        # remove /data from image path        
-        image_path = os.path.join('../label-studio/data/media',task["data"]["image"][6:])
 
-        model_results = self.model(image_path, size=1280)
         results = []
         all_scores = []
+
+        # "image": "/data/upload/2/520958e5-1b8b8169-ply-PluakDaeng5-sm-bh.png"
+        # remove /data from image path
+        image_path = os.path.join(
+            '../label-studio/data/media', task["data"]["image"][6:])
+
+        # get image_name, it is the 3 characters in image_path
+        image_name = re.findall(r'\b[a-z]{3}\b', image_path)[0]
+
+        # this is the part that hotfixes the problem that label-studio does not has a way to pass the existing annotations to a new project
+        # search for image_name in existing_annotations
+        for existing_annotation in self.existing_annotations:
+            existing_annotation_filename = re.findall(
+                r'\b[a-z]{3}\b', existing_annotation["file_upload"])[0]
+            if existing_annotation_filename == image_name:
+                # if found, return existing_annotation
+                print("found existing annotation")
+
+                # reformat existing_annotation["predictions"] to match the format of results
+                for prediction in existing_annotation["predictions"][0]["result"]:
+                    results.append({
+                        'from_name': self.from_name,
+                        'to_name': self.to_name,
+                        'type': 'rectanglelabels',
+                        'value': {
+                            'rectanglelabels': [prediction["value"]["rectanglelabels"][0]],
+                            'x': prediction["value"]["x"],
+                            'y': prediction["value"]["y"],
+                            'width': prediction["value"]["width"],
+                            'height': prediction["value"]["height"]
+                        },
+                        'score': 1.0
+                    })
+
+                return [{
+                    'result': results,
+                    'score': 1.0
+                }]
+
+        model_results = self.model(image_path, size=1280)
         img_width, img_height = get_image_size(image_path)
 
         df = model_results.pandas().xyxy[0]
@@ -105,7 +152,6 @@ class YOLOv5(LabelStudioMLBase):
                     'from_name': self.from_name,
                     'to_name': self.to_name,
                     'type': 'rectanglelabels',
-
                     'value': {
                         'rectanglelabels': [class_name],
                         'x': xmin / img_width * 100,
