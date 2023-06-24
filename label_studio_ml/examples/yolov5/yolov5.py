@@ -27,8 +27,8 @@ class YOLOv5(LabelStudioMLBase):
         self.score_thresh = score_threshold
 
         # default Label Studio image upload folder
-        # get data_dir from environment variable or from settings
-        upload_dir = os.path.join(os.environ.get('DATA_DIR'), 'media', 'upload') or os.path.join(
+        # get data_dir from environment variable or from settings os.path.join(os.environ.get('DATA_DIR'), 'media', 'upload')
+        upload_dir = os.path.join(
             get_data_dir(), 'media', 'upload')
         self.image_dir = image_dir or upload_dir
         logger.debug(
@@ -77,9 +77,10 @@ class YOLOv5(LabelStudioMLBase):
     def predict(self, tasks, **kwargs):
         assert len(tasks) == 1
         task = tasks[0]
-
-        image_url = self._get_image_url(task)
-        image_path = self.get_local_path(image_url)
+        
+        # "image": "/data/upload/2/520958e5-1b8b8169-ply-PluakDaeng5-sm-bh.png"
+        # remove /data from image path        
+        image_path = os.path.join('../label-studio/data/media',task["data"]["image"][6:])
 
         model_results = self.model(image_path, size=1280)
         results = []
