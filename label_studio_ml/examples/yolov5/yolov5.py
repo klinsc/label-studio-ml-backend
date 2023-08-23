@@ -146,8 +146,10 @@ class YOLOv5(LabelStudioMLBase):
         print(
             f"❌ Did not find existing annotation of {image_name}, starting prediction...")
 
-        model_results = self.model(image_path, size=1280)
-        img_width, img_height = get_image_size(image_path)
+        uploaded_image_path = os.path.join(
+            '../label-studio/data/media', task["data"]["image"][6:])
+        model_results = self.model(uploaded_image_path, size=1280)
+        img_width, img_height = get_image_size(uploaded_image_path)
 
         df = model_results.pandas().xyxy[0]
         for row in range(len(df)):
