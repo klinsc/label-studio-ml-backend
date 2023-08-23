@@ -57,7 +57,7 @@ class YOLOv5(LabelStudioMLBase):
         # self.model.cuda() # use GPU
 
         self.existing_annotations = json_load(
-            'asset/combineRpod5WithRpod6NotFinish.json')
+            'asset/asdr-7.json')
 
     def json_load(file, int_keys=False):
         with open(file) as f:
