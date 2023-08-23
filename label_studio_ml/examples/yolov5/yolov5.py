@@ -53,7 +53,8 @@ class YOLOv5(LabelStudioMLBase):
 
         # Model
         # or yolov5n - yolov5x6, custom
-        self.model = hub.load("ultralytics/yolov5", "custom", path="asset/best-rpod6-2000.pt")
+        self.model = hub.load("ultralytics/yolov5", "custom",
+                              path="asset/best-rpod6-2000.pt")
         # self.model.cuda() # use GPU
 
         self.existing_annotations = json_load(
@@ -92,30 +93,37 @@ class YOLOv5(LabelStudioMLBase):
         results = []
         all_scores = []
 
-        # "image": "/data/upload/2/520958e5-1b8b8169-ply-PluakDaeng5-sm-bh.png"
-        # remove /data from image path
-        image_path = os.path.join(
-            '../label-studio/data/media', task["data"]["image"][6:])
-
-        # get image_name, it is the 4 characters in image_path
-        image_name = re.findall(r'\b[a-z]{4}\b', image_path)[0]
+        # get image_path from task
+        image_path = task["data"]["image"]
+        image_path_split = image_path.split("/")
+        image_name_with_dash = image_path_split[len(image_path_split) - 1]
+        image_name_with_extension = re.sub(r'^.*?-', '', image_name_with_dash)
+        image_name = re.sub(r'\.[^.]*$', '', image_name_with_extension)
 
         # this is the part that hotfixes the problem that label-studio does not has a way to pass the existing annotations to a new project
         # search for image_name in existing_annotations
         for existing_annotation in self.existing_annotations:
-            existing_annotation_filename = re.findall(
-                r'\b[a-z]{3}\b', existing_annotation["file_upload"])[0]
+            existing_annotation_path = existing_annotation["data"]["image"]
+            existing_annotation_path_split = existing_annotation_path.split(
+                "/")
+            image_name_with_dash = existing_annotation_path_split[len(
+                existing_annotation_path_split) - 1]
+            existing_annotation_filename_with_extension = re.sub(
+                r'^.*?-', '', image_name_with_dash)
+            existing_annotation_filename = re.sub(
+                r'\.[^.]*$', '', existing_annotation_filename_with_extension)
+
             if existing_annotation_filename == image_name:
                 # if found, return existing_annotation
-                print("found existing annotation")
+                print("✅ Found existing annotation!")
 
-                result = existing_annotation["predictions"]
+                result = existing_annotation["annotations"]
                 if(len(result) == 0):
                     print("no result")
                     break
 
                 # reformat existing_annotation["predictions"] to match the format of results
-                for prediction in existing_annotation["predictions"][0]["result"]:
+                for prediction in existing_annotation["annotations"][0]["result"]:
                     results.append({
                         'from_name': self.from_name,
                         'to_name': self.to_name,
@@ -134,6 +142,9 @@ class YOLOv5(LabelStudioMLBase):
                     'result': results,
                     'score': 1.0
                 }]
+                        
+        print(
+            f"❌ Did not find existing annotation of {image_name}, starting prediction...")
 
         model_results = self.model(image_path, size=1280)
         img_width, img_height = get_image_size(image_path)
