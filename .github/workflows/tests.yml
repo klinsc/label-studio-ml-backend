@@ -2,12 +2,9 @@ name: "Tests"
 
 on:
   push:
-    paths:
-      - 'label_studio_ml/**'
-      - '.github/workflows/tests.yml'
-      - 'requirements**'
-    tags-ignore:
-      - '**'
+    branches:
+      - master
+      - 'release/**'
   pull_request:
     types:
       - opened
@@ -31,13 +28,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{fromJSON(needs.calculate_matrix.outputs.matrix)}}
-
     env:
       LOG_DIR: pytest_logs
       collect_analytics: false
-
+      TEST_WITH_CPU: ${{ matrix.ml_backend == 'segment_anything_model' }}
     steps:
       - uses: hmarr/debug-action@v2.1.0
+
+      - name: Free Disk Space
+        if: matrix.ml_backend == 'mmdetection-3'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # this might remove tools that are actually needed,
+          # if set to "true" but frees about 6 GB
+          tool-cache: true
+          android: false
+          dotnet: false
+          haskell: false
+          large-packages: false
+          docker-images: false
+          swap-storage: false
 
       - name: Extract branch name on direct push to a branch
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
@@ -50,14 +60,14 @@ jobs:
           echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF})" >> $GITHUB_ENV
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: "${{ env.GITHUB_SHA }}"
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.7'
+          python-version: '3.8'
 
       - uses: actions/cache@v3
         name: Configure pip cache
@@ -73,7 +83,6 @@ jobs:
           sudo apt-get clean
           sudo apt-get update
           sudo apt-get install virtualenv libsasl2-dev python3-dev libldap2-dev libssl-dev
-          pip install -U pip==20.2
           pip install -r requirements-test.txt
           pip install -r requirements.txt
           pip install -e .
@@ -135,7 +144,7 @@ jobs:
           echo "BASE_REF_NAME=${{ github.event.pull_request.base.sha }}" >> $GITHUB_ENV
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: "${{ env.GITHUB_SHA }}"
           fetch-depth: 0
@@ -152,7 +161,10 @@ jobs:
           CHANGED_EXAMPLES=$(echo "$CHANGED" | grep examples )
           set -e
           ALL_EXAMPLES=$(ls -1d label_studio_ml/examples/*/ | cut -d'/' -f3- | cut -d'/' -f1)
-          if [[ $(echo "$CHANGED" | grep -c -v ^$) == $(echo "$CHANGED_EXAMPLES" | grep -c -v ^$) ]]; then
+          if [[ $GITHUB_REF == 'refs/heads/master' || $GITHUB_REF =~ ^refs/heads/release/.* ]]; then
+            echo "All in matrix because we are on master or a release branch"
+            echo "matrix={\"ml_backend\":[$(echo "$ALL_EXAMPLES" | xargs | sed -e 's/ /\",\"/g' -e 's/^/\"/' -e 's/$/\"/')]}" >> $GITHUB_OUTPUT
+          elif [[ $(echo "$CHANGED" | grep -c -v ^$) == $(echo "$CHANGED_EXAMPLES" | grep -c -v ^$) ]]; then
             echo "Finding examples to test"
             if [[ $(echo "$CHANGED" | grep -c -v ^$) == 0 ]]; then
               echo "matrix={\"ml_backend\":[]}" >> $GITHUB_OUTPUT

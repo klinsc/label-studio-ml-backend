@@ -2,13 +2,14 @@ import os
 import json
 import random
 import label_studio_sdk
+from uuid import uuid4
 
 
 from label_studio_ml.model import LabelStudioMLBase
 
 
-LABEL_STUDIO_HOST = os.getenv('LABEL_STUDIO_HOST', 'http://localhost:8000')
-LABEL_STUDIO_API_KEY = os.getenv('LABEL_STUDIO_API_KEY', 'd6f8a2622d39e9d89ff0dfef1a80ad877f4ee9e3')
+LABEL_STUDIO_HOST = os.getenv('LABEL_STUDIO_HOST', 'http://localhost:8080')
+LABEL_STUDIO_API_KEY = os.getenv('LABEL_STUDIO_API_KEY', 'you-label-studio-api-key')
 
 
 class MyModel(LabelStudioMLBase):
@@ -26,11 +27,16 @@ class MyModel(LabelStudioMLBase):
             :param tasks: Label Studio tasks in JSON format
         """
         # self.train_output is a dict that stores the latest result returned by fit() method
-        if self.train_output:
-            prediction_result_example = self.train_output['prediction_example']
+        last_annotation = self.get('last_annotation')
+        if last_annotation:
+            # results are cached as strings, so we need to parse it back to JSON
+            prediction_result_example = json.loads(last_annotation)
             output_prediction = [{
                 'result': prediction_result_example,
-                'score': random.uniform(0, 1)
+                'score': random.uniform(0, 1),
+                # to control the model versioning, you can use the model_version parameter
+                # it will be displayed in the UI and also will be available in the exported results
+                'model_version': self.model_version
             }] * len(tasks)
         else:
             output_prediction = []
@@ -49,26 +55,11 @@ class MyModel(LabelStudioMLBase):
         tasks = project.get_labeled_tasks()
         return tasks
 
-    def fit(self, tasks, workdir=None, **kwargs):
+    def fit(self, event, data,  **kwargs):
         """
         This method is called each time an annotation is created or updated
-        :param kwargs: contains "data" and "event" key, that could be used to retrieve project ID and annotation event type
-                        (read more in https://labelstud.io/guide/webhook_reference.html#Annotation-Created)
-        :return: dictionary with trained model artefacts that could be used further in code with self.train_output
+        It simply stores the latest annotation as a "prediction model" artifact
         """
-        if 'data' not in kwargs:
-            raise KeyError(f'Project is not identified. Go to Project Settings -> Webhooks, and ensure you have "Send Payload" enabled')
-        data = kwargs['data']
-        project = data['project']['id']
-        tasks = self.download_tasks(project)
-        if len(tasks) > 0:
-            print(f'{len(tasks)} labeled tasks downloaded for project {project}')
-            prediction_example = tasks[-1]['annotations'][0]['result']
-            print(f'We\'ll return this as dummy prediction example for every new task:\n{json.dumps(prediction_example, indent=2)}')
-            return {
-                'prediction_example': prediction_example,
-                'also you can put': 'any artefact here'
-            }
-        else:
-            print('No labeled tasks found: make some annotations...')
-            return {}
+        self.set('last_annotation', json.dumps(data['annotation']['result']))
+        # to control the model versioning, you can use the model_version parameter
+        self.set('model_version', str(uuid4())[:8])

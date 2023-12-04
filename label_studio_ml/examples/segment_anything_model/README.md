@@ -1,71 +1,289 @@
 # Interactive Annotation in Label Studio with Segment Anything Model
 
-<img src="https://user-images.githubusercontent.com/106922533/234322629-e583c838-11eb-4261-aaa1-872f1695720c.gif" width="500" />
-
-<img src="https://user-images.githubusercontent.com/106922533/234322576-a24643f8-aeb6-421c-984e-d0d2e2233cd4.gif" width="500" />
+https://github.com/shondle/label-studio-ml-backend/assets/106922533/42a8a535-167c-404a-96bd-c2e2382df99a
 
 Use Facebook's Segment Anything Model with Label Studio!
 
+# Quick Start
+
+## Using Docker Compose (recommended)
+
+To start the server with lightweight mobile version of SAM, run the following command:
+
+```bash
+docker-compose up
+```
+
+# Intro
+
+There are three models in this repo that you can use.
+1. Advanced Segment Anything Model
+2. ONNX Segment Anything Model
+
+# About the Models
+
+## Advanced Segment Anything Model
+
+The Advanced Segment Anything Model introduces the ability to combine a
+multitude of different prompts to achieve a prediction, and the ability to use
+MobileSAM.
+
+- Mix one rectangle label with multiple positive keypoints to refine your
+  predictions! Use negative keypoints to take away area from predictions for
+  increased control.
+- Use MobileSAM, an extremely lightweight alternative to the heavy Segment
+  Anything Model from Facebook, to retrieve predictions. This can run inference
+  within a second using a laptop GPU!
+
+## ONNX Segment Anything Model
+
+The ONNX Segment Anything Model gives the ability to use either a single
+keypoint or single rectangle label to prompt the original SAM.
+- This offers a much faster prediction using the original Segment Anything
+  Model due to using the ONNX version.
+- Downside: image size must be specified before using the ONNX model, and
+  cannot be generalized to other image sizes while labeling. Also, does not yet
+  offer the mixed labeling and refinement that AdvancedSAM does.
+
+## Model Configuration Options
+
+Here are the pros and cons broken down for choosing each model, and the choices you have for each.
+
+* AdvancedSAM
+  * Mobile SAM Configuration
+    - Pros: Lightweight model that can be run on laptops, and can mix many
+      different combinations of input prompts to fine-tune prediction.
+    - Cons: Lower accuracy than Facebook's original SAM architecture.
+  * Original SAM architecture
+    - Pros: Higher accuracy than MobileSAM, with ability to mix many different
+      combinations of input prompts to fine-tune predictions.
+    - Cons: takes long to gather predictions (~2s to create embedding of an
+      image), requires access to good GPUs
+
+* Using ONNXSAM
+  * Original SAM Architecture
+    - Pros: Much faster than when you use it in Advanced SAM
+    - Cons: Can only use one smart label per prediction. Image size must be
+      defined before generating the ONNX model. Cannot label images with
+      different sizes without running into issues
+
 # Setup
 
-## Setting Up the Backend
+The Label Studio SAM Backend works best if you have [Local
+Storage](https://labelstud.io/guide/storage.html#Local-storage) enabled for
+your project. It is also possible to set up shared local storage, but is not
+recommended. Currently, the backend does not work with cloud storage (S3,
+Azure, GCP).
 
-### 1. Clone this repo
+## Setting Up the Label Studio Server
 
-Place the images you want to annotate in this project's folder. If you want to use the version of the code that uses slower individual inference times, but has a faster rate on the first label only (not using ONNX), then refer to [this commit instead](https://github.com/shondle/label-studio-ml-backend/tree/4367b18a52a7a494125874467c5e980a6068eca5/label_studio_ml/examples/segment_anything_model)
+### Enabling Local Storage File Serving
 
-### 2. Retrieve Label Studio Code
+You can enable local storage file serving by setting the following variables.
 
 ```
-git clone https://github.com/heartexlabs/label-studio-ml-backend
-cd label-studio-ml-backend
-
-# Install label-studio-ml and its dependencies
-pip install -U -e .
+LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=<path_to_image_data>
+LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
 ```
 
-- [Label Studio Installation Instructions](https://labelstud.io/guide/install.html#Install-with-Anaconda)
-
-### 3. Download SAM
-
-Follow [SAM installation instructions with pip](https://github.com/facebookresearch/segment-anything). 
-Then, install the [ViT-H SAM model](https://github.com/facebookresearch/segment-anything)
-Then use the SAM installation instructions from above to convert to ONNX and place *into this project's directory*
-
-### 4. Add to your bashrc
+For example, if you're launching Label Studio with Docker, you can enable these variables with
 ```
-nano ~/.bashrc
-# add the bottom of your bashrc
-export ML_TIMEOUT_SETUP=120
+docker run -it -p 8080:8080 \
+               -v $(pwd)/mydata:/label-studio/data \
+               --env LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true \
+               --env LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data/images \
+               heartexlabs/label-studio:latest
 ```
 
-### 5. Installations
+Note the IP address that you are running your Label Studio instance as the
+`LABEL_STUDIO_HOST`. This will be nessary for setting up the connection to your
+SAM model. _Because you are hosting both Label Studio and the ML Backend in
+Docker containers, the hostname `localhost` will not resolve to the correct
+address._ There are a number of ways to determine your host ip address.  These
+can include calling either `ip a` or `ifconfig` from the command line and
+inspecting the output, or finding the address that has been assigned to your
+computer through the system network configuration settings.
+
+### Obtain Your API Token
+
+Log into the Label Studio interface (in the example above, at
+`http://<LABEL_STUDIO_HOST>:8080`). Create a new user, go into your `Account &
+Settings` tab, and make a note of the Access Token, which we will use later as
+the `LABEL_STUDIO_ACCESS_TOKEN`.
+
+## Setting Up the SAM Backend
+
+### Clone the Repository
+
+Make a clone of this repository on your host system and move into the working
+directory.
+
 ```
-pip install label-studio numpy opencv-python label-studio-converter
+git clone https://github.com/humansignal/label-studio-ml-backend
+cd label-studio-ml-backend/label_studio_ml/examples/segment_anything_model
 ```
 
-### 6. Start the Backend
-```
-# change into this project folder from where you are
-cd segment_anything_model
-python _wsgi.py -p 4243
+### Using Docker Compose (recommended)
+
+We suggest using [Docker Compose](https://docs.docker.com/compose/) to host and
+run the backend. For GPU support, please consult the [Docker Compose GPU Access
+Guide](https://docs.docker.com/compose/gpu-support/) to understand how to pass
+through GPU resources to services.
+
+Edit the `docker-compose.yml` file and fill in the values for the
+`LABEL_STUDIO_HOST` and `LABEL_STUDIO_ACCESS_TOKEN` for your particular
+installation. Be sure to append the port that Label Studio is running on in
+your `LABEL_STUDIO_HOST` variable, for example `http://192.168.1.36:8080` if
+Label Studio is running on port 8080.
+
+Run the command `docker compose up --build` to build the container and run it
+locally.
+
+### Setting up the Backend Manually
+
+#### Download Model Weights
+
+This step is only necessary if you are not using the Docker build for this model.
+
+- For MobileSAM install the weights using [this
+  link](https://cdn.githubraw.com/ChaoningZhang/MobileSAM/01ea8d0f/weights/mobile_sam.pt)
+  and place in folder (along with the advanced_sam.py and onnx_sam.py files)
+
+- For using regular SAM and/or ONNX- Follow [SAM installation instructions with
+  pip](https://github.com/facebookresearch/segment-anything). Then, install
+  the [ViT-H SAM model](https://github.com/facebookresearch/segment-anything)
+
+- For the ONNX model install using `python onnxconverter.py`
+
+You can download all weights and models using the following command:
+
+```bash
+./download_weights.sh
 ```
 
-### 7. Run Label Studio
+#### Install Requirements
+Change your directory into this folder and then install all if the python requirements.
+
 ```
-label-studio start
+pip install -r requirements.txt
 ```
 
-## Settings on the frontend
+#### Adjust variables and `_wsgi.py` depending on your choice of model.
 
-1. Create a project and go to settings.
-2. Under "Machine Learning" click "Add Model"<br>
-3. Under "URL" paste the URL of where the model backend is running (you can find this in the terminal where you started the backend)<br>
-4. Switch on "Use for interactive preannotations"<br>
-5. Click "Validate and Save"<br>
+You can set the following environment variables to change the behavior of the model.
 
-6. Next -> go to "Labelling Interface". This is on the same side where you chose the "Machine Learning" tab.<br>
-7. Choose the code option and paste in the following template-
+* `LABEL_STUDIO_HOST` sets the endpoint of the Label Studio host.
+* `LABEL_STUDIO_ACCESS_TOKEN` sets the API access token for the Label Studio host.
+* `SAM_CHOICE` selects which model to use.
+    * `SAM_CHOICE=MobileSAM` to use MobileSAM (default)
+    * `SAM_CHOICE=SAM` to use the original SAM model.
+    * `SAM_CHOICE=ONNX` to use the ONNX model.
+
+#### Start the Backend
+
+You can now manually start the ML backend.
+
+```
+python _wsgi.py
+```
+
+or
+
+```bash
+docker-compose up
+```
+to start the backend in a docker container.
+
+## Set up a Project in Label Studio for Segment Anything
+
+Log into your Label Studio instance and perform the following steps.
+
+1. Create a new project.
+2. Under the *Labeling Setup* in the *Create Project* interface, or under the
+   *Labeling Interface* menu item in the project settings, paste the [sample
+   template](#labeling-configs) into the code dialog. Save the interface.
+3. Under the *Machine Learning* menu item in the project settings, select *Add Model*.
+4. Enter a title for the model, and the URL for the instance of the model you
+   just created. If you're running Label Studio in Docker or on another host, you
+   should use the direct IP address of where the model is hosted (`localhost`)
+   will not work. Be sure to include the port number that the model is hosted on
+   (the default is `9090`). For example, if the model is hosted on `192.168.1.36`,
+   the URL for the model would be `http://192.168.1.36:9090`
+5. Click *Validate and Save*.
+
+You can now upload images into your project and begin annotating.
+
+[The video](#creating-the-annotation) also goes over this process, but does part of it while in the newly created project menu.
+
+
+# Creating Annotations
+
+See [this video tutorial](https://drive.google.com/file/d/1OMV1qLHc0yYRachPPb8et7dUBjxUsmR1/view?usp=sharing)
+to get a better understanding of the workflow when annotating with SAM.
+
+Use `Alt` hotkey to alter keypoint positive and negative labels.
+
+## Notes for AdvancedSAM
+
+* _**Please watch the [video](#creating-the-annotation) first**_
+* For the best experience, follow the video tutorial above and _**uncheck 'Auto
+  accept annotation suggestions'**_ when running predictions.
+* After generating the prediction from an assortment of inputs, make sure you _**click the
+  check mark that is outside of the image**_ to finalize the region (this should either
+  be above or below the image. Watch the [video](#creating-the-annotation) for a visual guide).
+* There may be a check mark inside the image next to a generated prediction,
+  but _do not use that one_. For some reason, the check mark that is not on the
+  image itself makes sure to clean the other input prompts used for generating
+  the region, and only leaves the predicted region after being clicked (this is
+  the most compatible way to use the backend.
+* You may run into problems creating instances of the same class if you click
+  the check mark on the image and it leaves the labels used to guide the
+  region).
+* After labeling your object, select the label in the menu and select the type
+  of brush label you would like to give it at the top of your label keys below
+  your image. This allows you to change the class of your prediction. See the
+  [video](#creating-the-annotation) for a better explanation.
+* _**Only the negative keypoints can be used for subtracting from prediction
+  areas**_ for the model. Positive keypoints and rectangles tell the model
+  areas of interest to make positive predictions. 
+* Multiple keypoints may be used to provide areas for the model where predictions
+  should be extended. _**Only one rectangle label may be used**_ when generating
+  a prediction as an area where the model prediction should occur/be extended.
+  If you place multiple rectangle labels, the model will use the newest
+  rectangle label along with all other keypoints when aiding the model
+  prediction. 
+
+## Notes for ONNX
+
+* The ONNX model uses the `orig_img_size` in `onnx_converter.py` that defines
+  an image ratio for the ONNX model. Change this to the ratio of the images
+  that you are labeling before generating the model. If you are labeling images
+  of different sizes, use Advanced SAM instead, or generate a new ONNX model
+  for different image groups with different sizes. If you do not adjust
+  `orig_img_size`, and your image aspect ratios do not match what is
+  already defined, then your predictions will be offset from the image. If
+  using `docker compose` to launch the model, be sure to rebuild the host
+  container.
+* Make sure you adjust `orig_img_size` BEFORE generating the ONNX model when
+  using `onnx_converter.py`
+* Guide on changing the code - `"orig_im_size": torch.tensor([#heightofimages, #widthofimages], dtype=torch.float),`
+
+## Notes for Exporting
+
+* COCO and YOLO format is not supported (this project exports using brush
+  labels, so try NumPy or PNG export instead)
+
+# Labeling Configs
+
+## When using the AdvancedSAM
+
+- Give one brush label per class you want to annotate.
+- Hold `Alt` hotkey to create negative keypoints.
+- Add one rectangle label for each of your classes that you want to annotate
+- [The video](#creating-the-annotation) reviews these points as well if you are
+  confused after reading this
+
+Base example:
 ```
 <View>
   <Image name="image" value="$image" zoom="true"/>
@@ -73,38 +291,60 @@ label-studio start
   	<Label value="Banana" background="#FF0000"/>
   	<Label value="Orange" background="#0d14d3"/>
   </BrushLabels>
-  <KeyPointLabels name="tag2" toName="image">
+  <KeyPointLabels name="tag2" toName="image" smart="true">
     <Label value="Banana" smart="true" background="#000000" showInline="true"/>
     <Label value="Orange" smart="true" background="#000000" showInline="true"/>
-    <Label value="Orange Eraser" smart="true" background="#000000" showInline="true"/>
   </KeyPointLabels>
+  <RectangleLabels name="tag3" toName="image" smart="true">
+    <Label value="Banana" background="#000000" showInline="true"/>
+    <Label value="Orange" background="#000000" showInline="true"/>
+  </RectangleLabels>
 </View>
 ```
-Notes when you change for your use case - 
-- Label values must be the same for KeyPointLabels and BrushLabels
-- "smart" should be set to the label values for the Keypoints
-- You must format the Eraser string the exact same way, mirroring one of the other labels, in order to use this feature. 
 
+## When Using the ONNX model
 
-# Creating the Annotation
+Label values for the keypoints, rectangle, and brush labels must correspond.
+Other than that, make sure that smart="True" for each keypoint label and
+rectangle label. 
 
-1. After finishing the above, import an image into your project.<br/>
-2. Click into the labelling interface. <br>
-3. Check *"Auto-Annotation"* in the upper right hand corner<br>
-4. (Optional, but recommended) Check *"Auto accept annotation suggestions"*<br>
-5. Click the smart tool icon and make sure it is set to the keypoint option<br>
-6. Choose the smart keypoint box on the bottom of the image. <br>
-- If you set your labels the same as under *"Settings on the frontend"*, this should be the label with number 3 or 4
-- (the first two are brush labels. These are not smart)
+For the ONNX model-
+```
+<View>
+  <Image name="image" value="$image" zoom="true"/>
+  <BrushLabels name="tag" toName="image">
+  	<Label value="Banana" background="#FF0000"/>
+  	<Label value="Orange" background="#0d14d3"/>
+  </BrushLabels>
+  <KeyPointLabels name="tag2" toName="image" smart="true">
+    <Label value="Banana" smart="true" background="#000000" showInline="true"/>
+    <Label value="Orange" smart="true" background="#000000" showInline="true"/>
+  </KeyPointLabels>
+  <RectangleLabels name="tag3" toName="image" smart="true">
+    <Label value="Banana" background="#000000" showInline="true"/>
+    <Label value="Orange" background="#000000" showInline="true"/>
+  </RectangleLabels>
+</View>
+```
 
-7. Click on the image where you want SAM to return the auto-segmentation for. <br>
+## Credits
 
-> NOTE: The first time you retrieve a prediction after starting the frontend, it will take a while due to the way Label Studio works with loading models. There is a workaround in this code so that **AFTER THE FIRST RUN, THE PREDICTIONS WILL BE RECIEVED QUICKER.** On top of this, this commit allows for faster individual inference times overall, but has a slower first label so that a map of the image can be generated. If you would prefer to have overall slower individual inference times, but a faster first inference, then refer to [this commit](https://github.com/shondle/label-studio-ml-backend/tree/4367b18a52a7a494125874467c5e980a6068eca5/label_studio_ml/examples/segment_anything_model).
+Original Segment Anything Model paper-
+```
+@article{kirillov2023segany,
+  title={Segment Anything},
+  author={Kirillov, Alexander and Mintun, Eric and Ravi, Nikhila and Mao, Hanzi and Rolland, Chloe and Gustafson, Laura and Xiao, Tete and Whitehead, Spencer and Berg, Alexander C. and Lo, Wan-Yen and Doll{\'a}r, Piotr and Girshick, Ross},
+  journal={arXiv:2304.02643},
+  year={2023}
+}
+```
 
-8. Click the generated prediction on the left side<br>
-- Click the eraser on the icon tab and erase away
-- Or, add to the brush prediction by choosing the one of the brush labels under the images and drawing on the object you want to label.
-- *Use the eraser label to use SAM's inference to erase from an annotation by cutting off edges in the background*
-- Or, do nothing if it predicted perfectly :)
-
-9. Create more predictions by following step 6-8, then press submit!<br>
+MobileSAM paper-
+```
+@article{mobile_sam,
+  title={Faster Segment Anything: Towards Lightweight SAM for Mobile Applications},
+  author={Zhang, Chaoning and Han, Dongshen and Qiao, Yu and Kim, Jung Uk and Bae, Sung-Ho and Lee, Seungkyu and Hong, Choong Seon},
+  journal={arXiv preprint arXiv:2306.14289},
+  year={2023}
+}
+```

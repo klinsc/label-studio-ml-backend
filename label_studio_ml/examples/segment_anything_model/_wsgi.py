@@ -2,6 +2,7 @@ import os
 import argparse
 import logging
 import logging.config
+import json
 
 logging.config.dictConfig({
   "version": 1,
@@ -13,13 +14,13 @@ logging.config.dictConfig({
   "handlers": {
     "console": {
       "class": "logging.StreamHandler",
-      "level": "DEBUG",
+      "level": os.getenv('LOG_LEVEL', 'INFO'),
       "stream": "ext://sys.stdout",
       "formatter": "standard"
     }
   },
   "root": {
-    "level": "ERROR",
+    "level": os.getenv('LOG_LEVEL', 'INFO'),
     "handlers": [
       "console"
     ],
@@ -28,8 +29,7 @@ logging.config.dictConfig({
 })
 
 from label_studio_ml.api import init_app
-from segment_anything_model import MyModel
-
+from model import SamMLBackend
 
 _DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.json')
 
@@ -101,26 +101,13 @@ if __name__ == "__main__":
         kwargs.update(parse_kwargs())
 
     if args.check:
-        print('Check "' + MyModel.__name__ + '" instance creation..')
-        model = MyModel(**kwargs)
+        print('Check "' + SamMLBackend.__name__ + '" instance creation..')
+        model = SamMLBackend(**kwargs)
 
-    app = init_app(
-        model_class=MyModel,
-        model_dir=os.environ.get('MODEL_DIR', args.model_dir),
-        redis_queue=os.environ.get('RQ_QUEUE_NAME', 'default'),
-        redis_host=os.environ.get('REDIS_HOST', 'localhost'),
-        redis_port=os.environ.get('REDIS_PORT', 6379),
-        **kwargs
-    )
+    app = init_app(model_class=SamMLBackend)
 
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 else:
     # for uWSGI use
-    app = init_app(
-        model_class=MyModel,
-        model_dir=os.environ.get('MODEL_DIR', os.path.dirname(__file__)),
-        redis_queue=os.environ.get('RQ_QUEUE_NAME', 'default'),
-        redis_host=os.environ.get('REDIS_HOST', 'localhost'),
-        redis_port=os.environ.get('REDIS_PORT', 6379)
-    )
+    app = init_app(model_class=SamMLBackend)

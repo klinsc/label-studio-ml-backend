@@ -1,6 +1,9 @@
 import logging
+import difflib
 
 from PIL import Image, ImageOps
+from collections import OrderedDict
+from typing import List
 
 from label_studio_tools.core.utils.params import get_env
 from label_studio_tools.core.utils.io import get_local_path
@@ -31,6 +34,22 @@ def get_single_tag_keys(parsed_label_config, control_type, object_type):
     return from_name, to_name, value, info['labels']
 
 
+def get_first_tag_keys(parsed_label_config, control_type, object_type):
+    """
+    Reads config and returns the first control tag and the first object tag that match the given types
+    :param parsed_label_config:
+    :param control_type:
+    :param object_type:
+    :return:
+    """
+    for from_name, info in parsed_label_config.items():
+        if info['type'] == control_type:
+            for input in info['inputs']:
+                if input['type'] == object_type:
+                    return from_name, info
+    return None, None
+
+
 def is_skipped(completion):
     if len(completion['annotations']) != 1:
         return False
@@ -42,11 +61,69 @@ def get_choice(completion):
     return completion['annotations'][0]['result'][0]['value']['choices'][0]
 
 
-def get_image_local_path(url, image_cache_dir=None, project_dir=None, image_dir=None):
-    return get_local_path(url, image_cache_dir, project_dir, get_env('HOSTNAME'), image_dir)
+def get_image_local_path(url, image_cache_dir=None, project_dir=None, image_dir=None,
+                         label_studio_host=None, label_studio_access_token=None):
+    image_local_path = get_local_path(
+        url=url,
+        cache_dir=image_cache_dir,
+        project_dir=project_dir,
+        hostname=label_studio_host or get_env('HOSTNAME'),
+        image_dir=image_dir,
+        access_token=label_studio_access_token
+    )
+    logger.debug(f'Image stored in the local path: {image_local_path}')
+    return image_local_path
 
 
 def get_image_size(filepath):
     img = Image.open(filepath)
     img = ImageOps.exif_transpose(img)
     return img.size
+
+
+class InMemoryLRUDictCache:
+    def __init__(self, capacity=1):
+        self.cache = OrderedDict()
+        self.capacity = capacity
+
+    def __contains__(self, item):
+        return item in self.cache
+
+    def get(self, key):
+        if key in self.cache:
+            # Move the accessed item to the end
+            self.cache.move_to_end(key)
+            return self.cache[key]
+        return None
+
+    def put(self, key, value):
+        if key in self.cache:
+            # Move the updated item to the end
+            self.cache.move_to_end(key)
+        elif len(self.cache) >= self.capacity:
+            # Pop the first item if cache reached its capacity
+            self.cache.popitem(last=False)
+
+        self.cache[key] = value
+
+    def __str__(self):
+        return str(self.cache)
+
+
+def match_labels(input: str, labels: List[str]) -> List[str]:
+    # assuming classes are separated by newlines - we can customize that in the future
+    # TODO: support other guardrails
+    predicted_classes = input.splitlines()
+
+    matched_labels = []
+    for pred in predicted_classes:
+        scores = list(map(lambda l: difflib.SequenceMatcher(None, pred, l).ratio(), labels))
+        matched_labels.append(labels[scores.index(max(scores))])
+    return matched_labels
+
+
+if __name__ == "__main__":
+    c = InMemoryLRUDictCache(2)
+    c.put(1, 1)
+    c.put(2,2)
+    print(c.cache)
